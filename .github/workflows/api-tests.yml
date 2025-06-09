@@ -2,7 +2,7 @@ name: API Testing Framework
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ main ] 
   # Comentar push para ahorrar minutos
   # push:
   #   branches: [ main, develop ]
