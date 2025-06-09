@@ -115,7 +115,7 @@ After running tests, check the `reports/` directory for:
 
 ## 🔗 Related Article
 
-📖 Read the complete guide: [Mastering API Testing: Practical Guide with Postman and Newman for Automation](https://github.com/SebastianFuentesAvalos/api-testing-framework-demo)
+📖 Read the complete guide: [Mastering API Testing: Practical Guide with Postman and Newman for Automation](https://dev.to/sebastianfuentesavalos/mastering-api-testing-practical-guide-with-postman-and-newman-for-automation-5bm4)
 
 ## 🤝 Contributing
 
