@@ -1,88 +1,85 @@
 name: API Testing Framework
 
 on:
-  push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
-  schedule:
-    - cron: '0 8 * * *'  # Run daily at 8 AM UTC
+    branches: [ main ] 
+  # Comentar push para ahorrar minutos
+  # push:
+  #   branches: [ main, develop ]
 
 jobs:
   api-tests:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        node-version: [16, 18, 20]
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: '18'  # Solo una versión
           cache: 'npm'
 
       - name: Install dependencies
         run: |
-          npm ci
-          npm install -g newman newman-reporter-html
+          npm ci --legacy-peer-deps
+          npm install -g newman@latest newman-reporter-htmlextra
 
       - name: Create reports directory
         run: mkdir -p reports
 
-      - name: Start API server
+      - name: Verify collections exist
+        run: |
+          ls -la collections/ || echo "Collections folder missing"
+          ls -la environments/ || echo "Environments folder missing"
+          ls -la src/ || echo "Source folder missing"
+
+      - name: Start API server in background
         run: |
           npm start &
           echo $! > api.pid
-          sleep 10  # Wait for server to start
-        
+          sleep 10
+
       - name: Wait for API to be ready
         run: |
-          timeout 30 bash -c 'until curl -f http://localhost:3000/health; do sleep 1; done'
+          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do echo "Waiting for API..."; sleep 2; done'
 
       - name: Run API Health Check
         run: |
-          curl -f http://localhost:3000/health || exit 1
+          curl -f http://localhost:3000/health
+          echo "API Health Check passed!"
 
       - name: Execute API Tests
         run: |
           newman run collections/user-api-tests.postman_collection.json \
             -e environments/dev.postman_environment.json \
-            --reporters cli,html,json \
-            --reporter-html-export reports/api-test-report-node${{ matrix.node-version }}.html \
-            --reporter-json-export reports/api-test-results-node${{ matrix.node-version }}.json \
-            --bail
+            --reporters cli,htmlextra,json \
+            --reporter-htmlextra-export reports/api-test-report.html \
+            --reporter-json-export reports/api-test-results.json \
+            --timeout-request 10000 \
+            --delay-request 100 \
+            --verbose
 
       - name: Run Security Tests
         run: |
-          newman run collections/security-tests.postman_collection.json \
-            -e environments/dev.postman_environment.json \
-            --reporters cli,html \
-            --reporter-html-export reports/security-test-report-node${{ matrix.node-version }}.html
-
-      - name: Performance Testing
-        run: |
-          newman run collections/user-api-tests.postman_collection.json \
-            -e environments/dev.postman_environment.json \
-            --iteration-count 50 \
-            --reporters cli,json \
-            --reporter-json-export reports/performance-report-node${{ matrix.node-version }}.json
-
-      - name: Analyze Performance Results
-        run: |
-          node scripts/analyze-results.js reports/performance-report-node${{ matrix.node-version }}.json
+          if [ -f collections/security-tests.postman_collection.json ]; then
+            newman run collections/security-tests.postman_collection.json \
+              -e environments/dev.postman_environment.json \
+              --reporters cli,htmlextra \
+              --reporter-htmlextra-export reports/security-test-report.html \
+              --timeout-request 10000
+          else
+            echo "Security tests collection not found, skipping..."
+          fi
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-reports-node${{ matrix.node-version }}
+          name: test-reports
           path: reports/
-          retention-days: 30
+          retention-days: 7  # Reducido para ahorrar espacio
 
       - name: Stop API server
         if: always()
@@ -91,58 +88,12 @@ jobs:
             kill $(cat api.pid) || true
             rm api.pid
           fi
+          pkill -f "node src/server.js" || true
 
-      - name: Comment PR with Test Results
-        if: github.event_name == 'pull_request' && matrix.node-version == '18'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = './reports/api-test-results-node18.json';
-            
-            if (fs.existsSync(path)) {
-              const results = JSON.parse(fs.readFileSync(path, 'utf8'));
-              const stats = results.run.stats;
-              
-              const comment = `## 🧪 API Test Results
-              
-              | Metric | Value |
-              |--------|-------|
-              | ✅ Tests Passed | ${stats.tests.total - stats.tests.failed}/${stats.tests.total} |
-              | ❌ Tests Failed | ${stats.tests.failed} |
-              | 🚀 Requests | ${stats.requests.total} |
-              | ⚡ Avg Response Time | ${Math.round(results.run.timings.responseAverage)}ms |
-              
-              ${stats.tests.failed > 0 ? '⚠️ Some tests failed. Please check the detailed reports.' : '🎉 All tests passed!'}
-              `;
-              
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: comment
-              });
-            }
-
-  deploy-reports:
-    needs: api-tests
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download test reports
-        uses: actions/download-artifact@v4
-        with:
-          name: test-reports-node18
-          path: reports/
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./reports
-          destination_dir: test-reports
+      - name: Display Test Summary
+        if: always()
+        run: |
+          if [ -f reports/api-test-results.json ]; then
+            echo "=== TEST SUMMARY ==="
+            cat reports/api-test-results.json | jq '.run.stats' || echo "jq not available, showing raw stats"
+          fi

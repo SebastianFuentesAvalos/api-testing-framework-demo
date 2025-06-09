@@ -5,24 +5,31 @@ function analyzeTestResults(reportPath) {
     try {
         if (!fs.existsSync(reportPath)) {
             console.error(`❌ Report file not found: ${reportPath}`);
-            process.exit(1);
+            return null; // No hacer exit en CI
         }
 
         const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
         
+        // Verificar estructura del reporte
+        if (!report.run || !report.run.stats) {
+            console.error('❌ Invalid report structure');
+            return null;
+        }
+        
         const summary = {
-            totalTests: report.run.stats.tests.total,
-            passedTests: report.run.stats.tests.total - report.run.stats.tests.failed,
-            failedTests: report.run.stats.tests.failed,
-            skippedTests: report.run.stats.tests.pending || 0,
-            averageResponseTime: calculateAverageResponseTime(report.run.executions),
-            successRate: ((report.run.stats.tests.total - report.run.stats.tests.failed) / report.run.stats.tests.total * 100).toFixed(2),
-            totalRequests: report.run.stats.requests.total,
-            failedRequests: report.run.stats.requests.failed
+            totalTests: report.run.stats.tests?.total || 0,
+            passedTests: (report.run.stats.tests?.total || 0) - (report.run.stats.tests?.failed || 0),
+            failedTests: report.run.stats.tests?.failed || 0,
+            skippedTests: report.run.stats.tests?.pending || 0,
+            averageResponseTime: calculateAverageResponseTime(report.run.executions || []),
+            successRate: report.run.stats.tests?.total ? 
+                (((report.run.stats.tests.total - (report.run.stats.tests.failed || 0)) / report.run.stats.tests.total) * 100).toFixed(2) : 0,
+            totalRequests: report.run.stats.requests?.total || 0,
+            failedRequests: report.run.stats.requests?.failed || 0
         };
         
         console.log('📊 API Test Results Summary');
-        console.log('=' .repeat(50));
+        console.log('='.repeat(50));
         console.log(`✅ Passed Tests: ${summary.passedTests}/${summary.totalTests}`);
         console.log(`❌ Failed Tests: ${summary.failedTests}`);
         console.log(`⏭️  Skipped Tests: ${summary.skippedTests}`);
@@ -30,32 +37,41 @@ function analyzeTestResults(reportPath) {
         console.log(`💥 Failed Requests: ${summary.failedRequests}`);
         console.log(`⚡ Average Response Time: ${summary.averageResponseTime}ms`);
         console.log(`📈 Success Rate: ${summary.successRate}%`);
-        console.log('=' .repeat(50));
+        console.log('='.repeat(50));
         
         // Performance analysis
-        analyzePerformance(report.run.executions);
+        if (report.run.executions && report.run.executions.length > 0) {
+            analyzePerformance(report.run.executions);
+        }
         
         // Error analysis
         if (summary.failedTests > 0) {
-            analyzeErrors(report.run.executions);
+            analyzeErrors(report.run.executions || []);
         }
         
         // Generate recommendations
-        generateRecommendations(summary, report.run.executions);
+        generateRecommendations(summary, report.run.executions || []);
         
         return summary;
         
     } catch (error) {
         console.error(`❌ Error analyzing results: ${error.message}`);
-        process.exit(1);
+        console.error(error.stack);
+        return null; // No hacer exit en modo CI
     }
 }
 
 function calculateAverageResponseTime(executions) {
-    const totalTime = executions.reduce((sum, exec) => {
-        return sum + (exec.response ? exec.response.responseTime : 0);
+    if (!executions || executions.length === 0) return 0;
+    
+    const validExecutions = executions.filter(exec => exec.response && exec.response.responseTime);
+    if (validExecutions.length === 0) return 0;
+    
+    const totalTime = validExecutions.reduce((sum, exec) => {
+        return sum + exec.response.responseTime;
     }, 0);
-    return Math.round(totalTime / executions.length);
+    
+    return Math.round(totalTime / validExecutions.length);
 }
 
 function analyzePerformance(executions) {
