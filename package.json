@@ -1,0 +1,56 @@
+{
+  "name": "api-testing-framework-demo",
+  "version": "1.0.0",
+  "description": "A comprehensive demonstration of API testing using Postman and Newman with GitHub Actions automation",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli,html --reporter-html-export reports/test-report.html",
+    "test:performance": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --iteration-count 50 --reporters cli,json --reporter-json-export reports/performance-report.json",
+    "test:security": "newman run collections/security-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli",
+    "analyze": "node scripts/analyze-results.js reports/performance-report.json",
+    "setup": "npm install && npm install -g newman newman-reporter-html"
+  },
+  "keywords": [
+    "api-testing",
+    "postman",
+    "newman",
+    "automation",
+    "ci-cd",
+    "github-actions",
+    "nodejs",
+    "express",
+    "testing-framework"
+  ],
+  "author": {
+    "name": "Sebastian Fuentes Avalos",
+    "email": "sebastian@example.com",
+    "url": "https://github.com/SebastianFuentesAvalos"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "joi": "^17.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "newman": "^6.0.0",
+    "newman-reporter-html": "^1.0.5"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SebastianFuentesAvalos/api-testing-framework-demo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SebastianFuentesAvalos/api-testing-framework-demo/issues"
+  },
+  "homepage": "https://github.com/SebastianFuentesAvalos/api-testing-framework-demo#readme"
+}
