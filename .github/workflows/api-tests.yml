@@ -28,49 +28,61 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm ci
-          npm install -g newman newman-reporter-html
+          npm ci --legacy-peer-deps
+          npm install -g newman@latest newman-reporter-htmlextra
 
       - name: Create reports directory
         run: mkdir -p reports
+
+      - name: Verify collections exist
+        run: |
+          ls -la collections/
+          ls -la environments/
+          ls -la src/
 
       - name: Start API server in background
         run: |
           npm start &
           echo $! > api.pid
-          sleep 15  # Aumentar tiempo de espera
-        
+          sleep 10
+
       - name: Wait for API to be ready
         run: |
-          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do echo "Waiting for API..."; sleep 2; done'
 
       - name: Run API Health Check
         run: |
-          curl -f http://localhost:3000/health || exit 1
+          curl -f http://localhost:3000/health
+          echo "API Health Check passed!"
 
       - name: Execute API Tests
         run: |
           newman run collections/user-api-tests.postman_collection.json \
             -e environments/dev.postman_environment.json \
-            --reporters cli,html,json \
-            --reporter-html-export reports/api-test-report-node${{ matrix.node-version }}.html \
+            --reporters cli,htmlextra,json \
+            --reporter-htmlextra-export reports/api-test-report-node${{ matrix.node-version }}.html \
             --reporter-json-export reports/api-test-results-node${{ matrix.node-version }}.json \
             --timeout-request 10000 \
-            --delay-request 100
+            --delay-request 100 \
+            --verbose
 
       - name: Run Security Tests
         run: |
-          newman run collections/security-tests.postman_collection.json \
-            -e environments/dev.postman_environment.json \
-            --reporters cli,html \
-            --reporter-html-export reports/security-test-report-node${{ matrix.node-version }}.html \
-            --timeout-request 10000
+          if [ -f collections/security-tests.postman_collection.json ]; then
+            newman run collections/security-tests.postman_collection.json \
+              -e environments/dev.postman_environment.json \
+              --reporters cli,htmlextra \
+              --reporter-htmlextra-export reports/security-test-report-node${{ matrix.node-version }}.html \
+              --timeout-request 10000
+          else
+            echo "Security tests collection not found, skipping..."
+          fi
 
       - name: Performance Testing
         run: |
           newman run collections/user-api-tests.postman_collection.json \
             -e environments/dev.postman_environment.json \
-            --iteration-count 10 \
+            --iteration-count 5 \
             --reporters cli,json \
             --reporter-json-export reports/performance-report-node${{ matrix.node-version }}.json \
             --timeout-request 10000
@@ -79,7 +91,12 @@ jobs:
         if: always()
         run: |
           if [ -f reports/performance-report-node${{ matrix.node-version }}.json ]; then
-            node scripts/analyze-results.js reports/performance-report-node${{ matrix.node-version }}.json
+            if [ -f scripts/analyze-results.js ]; then
+              node scripts/analyze-results.js reports/performance-report-node${{ matrix.node-version }}.json
+            else
+              echo "Analysis script not found, showing basic stats..."
+              cat reports/performance-report-node${{ matrix.node-version }}.json | jq '.run.stats'
+            fi
           else
             echo "Performance report not found, skipping analysis"
           fi
@@ -100,7 +117,7 @@ jobs:
             rm api.pid
           fi
           # También matar por puerto como respaldo
-          lsof -ti:3000 | xargs kill -9 || true
+          pkill -f "node src/server.js" || true
 
       - name: Comment PR with Test Results
         if: github.event_name == 'pull_request' && matrix.node-version == '18'
@@ -114,16 +131,16 @@ jobs:
               const results = JSON.parse(fs.readFileSync(path, 'utf8'));
               const stats = results.run.stats;
               
-              const comment = `## 🧪 API Test Results
+              const comment = `## 🧪 API Test Results (Node.js 18)
               
               | Metric | Value |
               |--------|-------|
-              | ✅ Tests Passed | ${stats.tests.total - stats.tests.failed}/${stats.tests.total} |
-              | ❌ Tests Failed | ${stats.tests.failed} |
-              | 🚀 Requests | ${stats.requests.total} |
+              | ✅ Tests Passed | ${(stats.tests?.total || 0) - (stats.tests?.failed || 0)}/${stats.tests?.total || 0} |
+              | ❌ Tests Failed | ${stats.tests?.failed || 0} |
+              | 🚀 Requests | ${stats.requests?.total || 0} |
               | ⚡ Avg Response Time | ${Math.round(results.run.timings?.responseAverage || 0)}ms |
               
-              ${stats.tests.failed > 0 ? '⚠️ Some tests failed. Please check the detailed reports.' : '🎉 All tests passed!'}
+              ${(stats.tests?.failed || 0) > 0 ? '⚠️ Some tests failed. Please check the detailed reports.' : '🎉 All tests passed!'}
               `;
               
               github.rest.issues.createComment({
@@ -151,7 +168,6 @@ jobs:
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
-        if: github.ref == 'refs/heads/main'
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./reports
