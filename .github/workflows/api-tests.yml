@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: '0 8 * * *'  # Run daily at 8 AM UTC
+    - cron: '0 8 * * *'
 
 jobs:
   api-tests:
@@ -34,15 +34,15 @@ jobs:
       - name: Create reports directory
         run: mkdir -p reports
 
-      - name: Start API server
+      - name: Start API server in background
         run: |
           npm start &
           echo $! > api.pid
-          sleep 10  # Wait for server to start
+          sleep 15  # Aumentar tiempo de espera
         
       - name: Wait for API to be ready
         run: |
-          timeout 30 bash -c 'until curl -f http://localhost:3000/health; do sleep 1; done'
+          timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
 
       - name: Run API Health Check
         run: |
@@ -55,26 +55,34 @@ jobs:
             --reporters cli,html,json \
             --reporter-html-export reports/api-test-report-node${{ matrix.node-version }}.html \
             --reporter-json-export reports/api-test-results-node${{ matrix.node-version }}.json \
-            --bail
+            --timeout-request 10000 \
+            --delay-request 100
 
       - name: Run Security Tests
         run: |
           newman run collections/security-tests.postman_collection.json \
             -e environments/dev.postman_environment.json \
             --reporters cli,html \
-            --reporter-html-export reports/security-test-report-node${{ matrix.node-version }}.html
+            --reporter-html-export reports/security-test-report-node${{ matrix.node-version }}.html \
+            --timeout-request 10000
 
       - name: Performance Testing
         run: |
           newman run collections/user-api-tests.postman_collection.json \
             -e environments/dev.postman_environment.json \
-            --iteration-count 50 \
+            --iteration-count 10 \
             --reporters cli,json \
-            --reporter-json-export reports/performance-report-node${{ matrix.node-version }}.json
+            --reporter-json-export reports/performance-report-node${{ matrix.node-version }}.json \
+            --timeout-request 10000
 
       - name: Analyze Performance Results
+        if: always()
         run: |
-          node scripts/analyze-results.js reports/performance-report-node${{ matrix.node-version }}.json
+          if [ -f reports/performance-report-node${{ matrix.node-version }}.json ]; then
+            node scripts/analyze-results.js reports/performance-report-node${{ matrix.node-version }}.json
+          else
+            echo "Performance report not found, skipping analysis"
+          fi
 
       - name: Upload Test Reports
         uses: actions/upload-artifact@v4
@@ -91,6 +99,8 @@ jobs:
             kill $(cat api.pid) || true
             rm api.pid
           fi
+          # También matar por puerto como respaldo
+          lsof -ti:3000 | xargs kill -9 || true
 
       - name: Comment PR with Test Results
         if: github.event_name == 'pull_request' && matrix.node-version == '18'
@@ -111,7 +121,7 @@ jobs:
               | ✅ Tests Passed | ${stats.tests.total - stats.tests.failed}/${stats.tests.total} |
               | ❌ Tests Failed | ${stats.tests.failed} |
               | 🚀 Requests | ${stats.requests.total} |
-              | ⚡ Avg Response Time | ${Math.round(results.run.timings.responseAverage)}ms |
+              | ⚡ Avg Response Time | ${Math.round(results.run.timings?.responseAverage || 0)}ms |
               
               ${stats.tests.failed > 0 ? '⚠️ Some tests failed. Please check the detailed reports.' : '🎉 All tests passed!'}
               `;

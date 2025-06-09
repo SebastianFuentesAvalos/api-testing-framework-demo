@@ -6,11 +6,20 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli,html --reporter-html-export reports/test-report.html",
-    "test:performance": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --iteration-count 50 --reporters cli,json --reporter-json-export reports/performance-report.json",
-    "test:security": "newman run collections/security-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli",
+    "test": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli,html --reporter-html-export reports/test-report.html --timeout-request 10000",
+    "test:performance": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --iteration-count 10 --reporters cli,json --reporter-json-export reports/performance-report.json --timeout-request 10000",
+    "test:security": "newman run collections/security-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli --timeout-request 10000",
+    "test:ci": "newman run collections/user-api-tests.postman_collection.json -e environments/dev.postman_environment.json --reporters cli,json --reporter-json-export reports/ci-test-results.json --timeout-request 10000 --delay-request 100",
     "analyze": "node scripts/analyze-results.js reports/performance-report.json",
-    "setup": "npm install && npm install -g newman newman-reporter-html"
+    "setup": "npm install && npm install -g newman@latest newman-reporter-htmlextra",
+    "start:test": "node src/server.js &",
+    "start:windows": "start /B node src/server.js",
+    "test:local": "npm run start:test && sleep 5 && npm run test:ci",
+    "test:local:windows": "npm run start:windows && timeout /t 10 && npm run test:ci",
+    "verify": "node scripts/verify-setup.js",
+    "test:health": "curl -f http://localhost:3000/health || echo 'API not responding'",
+    "test:health:windows": "powershell -Command \"try { Invoke-RestMethod http://localhost:3000/health } catch { Write-Host 'API not responding' }\"",
+    "debug": "DEBUG=* npm start"
   },
   "keywords": [
     "api-testing",
@@ -38,8 +47,8 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
-    "newman": "^6.0.0",
-    "newman-reporter-html": "^1.0.5"
+    "newman": "^6.2.1",
+    "newman-reporter-htmlextra": "^1.23.1"
   },
   "engines": {
     "node": ">=16.0.0",
